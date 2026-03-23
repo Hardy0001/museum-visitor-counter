@@ -9,7 +9,8 @@ const express = require('express');
 const cors    = require('cors');
 const app     = express();
 
-app.use(cors());
+app.use(cors({ origin: '*', methods: ['GET','POST','OPTIONS'], allowedHeaders: ['Content-Type'] }));
+app.options('*', cors());
 app.use(express.json());
 
 // ─── Existing stores ──────────────────────────────────────────────────
