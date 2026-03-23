@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Museum — Phone Detection Panel</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  :root {
+    --bg: #0d0f14; --bg2: #13161d; --bg3: #1a1e27; --card: #1e2330;
+    --border: rgba(255,255,255,0.07);
+    --accent: #4f9cf9; --accent2: #22d3a0; --accent3: #f97316; --accent4: #a78bfa;
+    --text: #e8eaf0; --muted: #6b7280;
+    --danger: #f87171; --warn: #fbbf24; --success: #34d399;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-size: 14px; min-height: 100vh; }
+
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 24px; border-bottom: 1px solid var(--border);
+    background: var(--bg2); position: sticky; top: 0; z-index: 100;
+  }
+  .header-left { display: flex; align-items: center; gap: 10px; }
+  .logo { width: 32px; height: 32px; background: linear-gradient(135deg,#a78bfa,#4f9cf9); border-radius: 8px; display:flex; align-items:center; justify-content:center; font-size:15px; }
+  .header-title { font-size: 15px; font-weight: 600; }
+  .header-sub { font-size: 11px; color: var(--muted); }
+  .badge { display:flex; align-items:center; gap:5px; background:rgba(52,211,153,0.1); border:1px solid rgba(52,211,153,0.25); color:var(--success); padding:3px 9px; border-radius:20px; font-size:11px; }
+  .dot { width:6px; height:6px; border-radius:50%; background:var(--success); animation: pulse 1.5s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  .main { padding: 18px 24px; max-width: 1300px; margin: 0 auto; }
+
+  /* Top stats */
+  .top-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:18px; }
+  .stat { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px; position:relative; overflow:hidden; }
+  .stat::before { content:''; position:absolute; top:0; left:0; right:0; height:2px; }
+  .stat.s1::before { background: var(--accent4); }
+  .stat.s2::before { background: var(--accent); }
+  .stat.s3::before { background: var(--accent2); }
+  .stat.s4::before { background: var(--accent3); }
+  .stat-lbl { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.8px; margin-bottom:6px; }
+  .stat-val { font-size:26px; font-weight:300; font-variant-numeric:tabular-nums; }
+  .stat-sub { font-size:11px; color:var(--muted); margin-top:4px; }
+
+  /* Main content grid */
+  .content-grid { display:grid; grid-template-columns:2fr 1fr; gap:14px; margin-bottom:14px; }
+
+  /* Radar / signal map */
+  .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px; }
+  .card-title { font-size:13px; font-weight:500; margin-bottom:3px; }
+  .card-sub { font-size:11px; color:var(--muted); margin-bottom:14px; }
+
+  /* Signal radar canvas */
+  .radar-wrap { position:relative; width:100%; height:280px; display:flex; align-items:center; justify-content:center; }
+  canvas#radar { position:absolute; }
+
+  /* Device list */
+  .device-list { display:flex; flex-direction:column; gap:6px; max-height:280px; overflow-y:auto; }
+  .device-list::-webkit-scrollbar { width:3px; }
+  .device-list::-webkit-scrollbar-thumb { background:var(--border); }
+  .device-row { display:flex; align-items:center; gap:10px; padding:8px 10px; background:rgba(255,255,255,0.03); border-radius:8px; border:1px solid var(--border); }
+  .device-icon { width:28px; height:28px; border-radius:6px; background:rgba(79,156,249,0.15); display:flex; align-items:center; justify-content:center; font-size:13px; flex-shrink:0; }
+  .device-id { font-size:11px; font-family:monospace; color:var(--muted); }
+  .device-room { font-size:12px; color:var(--text); }
+  .device-signal { margin-left:auto; font-size:11px; }
+  .signal-bars { display:flex; gap:2px; align-items:flex-end; }
+  .bar { width:4px; border-radius:1px; background:var(--muted); }
+  .bar.active { background:var(--accent2); }
+
+  /* Chart rows */
+  .chart-row { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px; }
+  .chart-wrap { position:relative; width:100%; height:180px; }
+
+  /* Room probe table */
+  .probe-table { width:100%; border-collapse:collapse; font-size:12px; }
+  .probe-table th { text-align:left; color:var(--muted); font-weight:400; padding:6px 8px; border-bottom:1px solid var(--border); font-size:11px; text-transform:uppercase; letter-spacing:0.5px; }
+  .probe-table td { padding:8px; border-bottom:1px solid rgba(255,255,255,0.04); }
+  .probe-table tr:last-child td { border-bottom:none; }
+  .mini-bar-bg { height:4px; background:rgba(255,255,255,0.06); border-radius:2px; width:80px; }
+  .mini-bar { height:4px; border-radius:2px; background:var(--accent4); }
+
+  /* Privacy notice */
+  .privacy-box { background:rgba(79,156,249,0.06); border:1px solid rgba(79,156,249,0.15); border-radius:10px; padding:12px 14px; margin-bottom:14px; font-size:12px; color:var(--muted); line-height:1.6; }
+  .privacy-box strong { color:var(--accent); }
+
+  @media (max-width:900px) {
+    .top-grid { grid-template-columns:1fr 1fr; }
+    .content-grid, .chart-row { grid-template-columns:1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-left">
+    <div class="logo">📡</div>
+    <div>
+      <div class="header-title">Phone Detection — Wi-Fi Probe</div>
+      <div class="header-sub">Passive Wi-Fi sniffing · Anonymous · No app needed</div>
+    </div>
+  </div>
+  <div class="badge"><div class="dot"></div> Scanning</div>
+</header>
+
+<main class="main">
+
+  <!-- Privacy notice -->
+  <div class="privacy-box">
+    <strong>Privacy-first detection</strong> — Phones are detected via passive Wi-Fi probe requests. MAC addresses are <strong>immediately hashed</strong> (SHA-256) and never stored. No personal data, no tracking, no app required. Fully <strong>GDPR compliant</strong>.
+  </div>
+
+  <!-- Stats -->
+  <div class="top-grid">
+    <div class="stat s1">
+      <div class="stat-lbl">Phones in museum</div>
+      <div class="stat-val" id="totalPhones">0</div>
+      <div class="stat-sub">detected right now</div>
+    </div>
+    <div class="stat s2">
+      <div class="stat-lbl">Unique visitors today</div>
+      <div class="stat-val" id="uniqueToday">0</div>
+      <div class="stat-sub">distinct devices seen</div>
+    </div>
+    <div class="stat s3">
+      <div class="stat-lbl">Phone / IR ratio</div>
+      <div class="stat-val" id="phoneRatio">--</div>
+      <div class="stat-sub">phones per IR-counted person</div>
+    </div>
+    <div class="stat s4">
+      <div class="stat-lbl">Peak detection</div>
+      <div class="stat-val" id="peakPhones">--</div>
+      <div class="stat-sub" id="peakTime">at --:--</div>
+    </div>
+  </div>
+
+  <!-- Radar + device list -->
+  <div class="content-grid">
+    <div class="card">
+      <div class="card-title">Live signal radar</div>
+      <div class="card-sub">Simulated device proximity map — circle = signal strength</div>
+      <div class="radar-wrap">
+        <canvas id="radar" width="500" height="280"></canvas>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Recent detections</div>
+      <div class="card-sub">Hashed device IDs + signal</div>
+      <div class="device-list" id="deviceList"></div>
+    </div>
+  </div>
+
+  <!-- Charts -->
+  <div class="chart-row">
+    <div class="card">
+      <div class="card-title">Phone detections over time</div>
+      <div class="card-sub">Last 60 minutes</div>
+      <div class="chart-wrap"><canvas id="timelineChart"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Signal strength distribution</div>
+      <div class="card-sub">RSSI buckets (dBm)</div>
+      <div class="chart-wrap"><canvas id="rssiChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Room breakdown -->
+  <div class="card">
+    <div class="card-title">Per-room phone detection</div>
+    <div class="card-sub" style="margin-bottom:10px">Phones in range vs IR visitor count</div>
+    <table class="probe-table">
+      <thead>
+        <tr>
+          <th>Room</th>
+          <th>Phones nearby</th>
+          <th>IR count</th>
+          <th>Unique today</th>
+          <th>Detection rate</th>
+        </tr>
+      </thead>
+      <tbody id="roomTable"></tbody>
+    </table>
+  </div>
+
+</main>
+
+<script>
+// ── Seeded random for stable demo ──────────────────────────────────
+function seededRnd(seed) {
+  let s = seed;
+  return () => { s = (s * 16807) % 2147483647; return (s-1)/2147483646; };
+}
+const rng = seededRnd(99);
+
+// ── Rooms data ─────────────────────────────────────────────────────
+const ROOMS = [
+  { name:'Main Hall',        ir:87, phones:72, unique:140 },
+  { name:'Egyptian Gallery', ir:54, phones:49, unique:95  },
+  { name:'Medieval Wing',    ir:31, phones:28, unique:62  },
+  { name:'Science Corner',   ir:45, phones:41, unique:88  },
+  { name:'Art Gallery',      ir:38, phones:35, unique:74  },
+  { name:'Café',             ir:22, phones:19, unique:41  },
+];
+
+const totalPhones  = ROOMS.reduce((s,r)=>s+r.phones,0);
+const uniqueToday  = ROOMS.reduce((s,r)=>s+r.unique,0);
+const totalIR      = ROOMS.reduce((s,r)=>s+r.ir,0);
+const phoneRatio   = (totalPhones/totalIR).toFixed(2);
+const peakPhones   = Math.round(totalPhones * 1.4);
+
+// ── Animate counters ──────────────────────────────────────────────
+function animateCount(el, target, dur=1200) {
+  const start = Date.now();
+  const tick = () => {
+    const t = Math.min((Date.now()-start)/dur,1);
+    const ease = 1-Math.pow(1-t,3);
+    el.textContent = Math.round(target*ease);
+    if(t<1) requestAnimationFrame(tick);
+  };
+  tick();
+}
+setTimeout(()=>{
+  animateCount(document.getElementById('totalPhones'), totalPhones);
+  animateCount(document.getElementById('uniqueToday'), uniqueToday);
+  document.getElementById('phoneRatio').textContent = phoneRatio;
+  animateCount(document.getElementById('peakPhones'), peakPhones);
+  document.getElementById('peakTime').textContent = 'at 13:20';
+},200);
+
+// ── Radar canvas ──────────────────────────────────────────────────
+const radar = document.getElementById('radar');
+const ctx   = radar.getContext('2d');
+radar.width  = radar.parentElement.offsetWidth || 500;
+radar.height = 280;
+
+const cx = radar.width/2, cy = radar.height/2;
+const MAX_R = Math.min(cx,cy) - 20;
+
+// Simulated devices: {x,y,rssi,id,age}
+const devices = Array.from({length:totalPhones}, (_,i) => ({
+  angle: rng()*Math.PI*2,
+  r: 30 + rng()*(MAX_R-30),
+  rssi: -40 - Math.round(rng()*40),
+  id: Math.floor(rng()*0xFFFFFFFF).toString(16).padStart(8,'0'),
+  phase: rng()*Math.PI*2,
+}));
+
+function drawRadar(t) {
+  ctx.clearRect(0,0,radar.width,radar.height);
+
+  // Rings
+  for(let i=1;i<=4;i++) {
+    ctx.beginPath();
+    ctx.arc(cx,cy,MAX_R*(i/4),0,Math.PI*2);
+    ctx.strokeStyle='rgba(255,255,255,0.06)';
+    ctx.lineWidth=1;
+    ctx.stroke();
+  }
+  // Ring labels
+  ctx.fillStyle='rgba(255,255,255,0.2)';
+  ctx.font='10px monospace';
+  ['-30','-45','-60','-75'].forEach((lbl,i)=>{
+    ctx.fillText(lbl+'dBm', cx+MAX_R*((i+1)/4)+4, cy-3);
+  });
+
+  // Sweep line
+  const sweep = (t/1000 * Math.PI/2) % (Math.PI*2);
+  ctx.save();
+  ctx.translate(cx,cy);
+  const grad = ctx.createConicalGradient ? null : null;
+  ctx.beginPath();
+  ctx.moveTo(0,0);
+  ctx.arc(0,0,MAX_R,sweep-0.6,sweep);
+  ctx.closePath();
+  ctx.fillStyle='rgba(52,211,153,0.08)';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(0,0);
+  ctx.lineTo(Math.cos(sweep)*MAX_R, Math.sin(sweep)*MAX_R);
+  ctx.strokeStyle='rgba(52,211,153,0.5)';
+  ctx.lineWidth=1.5;
+  ctx.stroke();
+  ctx.restore();
+
+  // Center dot
+  ctx.beginPath(); ctx.arc(cx,cy,4,0,Math.PI*2);
+  ctx.fillStyle='#22d3a0'; ctx.fill();
+
+  // Devices
+  devices.forEach(d => {
+    const wobble = Math.sin(t/1200+d.phase)*4;
+    const px = cx + Math.cos(d.angle)*(d.r+wobble);
+    const py = cy + Math.sin(d.angle)*(d.r+wobble);
+    const strength = 1 - (d.r/MAX_R);
+    const alpha = 0.4 + strength*0.6;
+
+    ctx.beginPath(); ctx.arc(px,py,4,0,Math.PI*2);
+    ctx.fillStyle=`rgba(79,156,249,${alpha})`; ctx.fill();
+    ctx.beginPath(); ctx.arc(px,py,8,0,Math.PI*2);
+    ctx.strokeStyle=`rgba(79,156,249,${alpha*0.3})`; ctx.lineWidth=1; ctx.stroke();
+  });
+
+  requestAnimationFrame(drawRadar);
+}
+requestAnimationFrame(drawRadar);
+
+// ── Device list ───────────────────────────────────────────────────
+const roomNames = ROOMS.map(r=>r.name);
+const deviceListEl = document.getElementById('deviceList');
+
+function signalBars(rssi) {
+  const strength = rssi > -50 ? 4 : rssi > -60 ? 3 : rssi > -70 ? 2 : 1;
+  return [1,2,3,4].map(i=>`<div class="bar${i<=strength?' active':''}" style="height:${i*4}px"></div>`).join('');
+}
+
+function addDevice(id, room, rssi) {
+  const el = document.createElement('div');
+  el.className='device-row';
+  el.style.opacity='0'; el.style.transition='opacity 0.4s';
+  el.innerHTML=`
+    <div class="device-icon">📱</div>
+    <div>
+      <div class="device-room">${room}</div>
+      <div class="device-id">${id.slice(0,16)}…</div>
+    </div>
+    <div class="device-signal">
+      <div class="signal-bars">${signalBars(rssi)}</div>
+      <div style="font-size:10px;color:var(--muted);text-align:right;margin-top:2px">${rssi} dBm</div>
+    </div>
+  `;
+  deviceListEl.prepend(el);
+  setTimeout(()=>el.style.opacity='1',10);
+  if(deviceListEl.children.length>15) deviceListEl.lastChild.remove();
+}
+
+// Seed with initial devices
+devices.slice(0,12).forEach(d=>{
+  addDevice(d.id, roomNames[Math.floor(rng()*roomNames.length)], d.rssi);
+});
+
+// Live simulation
+setInterval(()=>{
+  const id   = Math.floor(Math.random()*0xFFFFFFFF).toString(16).padStart(8,'0');
+  const room = roomNames[Math.floor(Math.random()*roomNames.length)];
+  const rssi = -40 - Math.round(Math.random()*35);
+  addDevice(id, room, rssi);
+}, 2800);
+
+// ── Timeline chart ────────────────────────────────────────────────
+const tlLabels = Array.from({length:60},(_,i)=>{
+  const d = new Date(Date.now() - (59-i)*60000);
+  return d.getMinutes()%5===0 ? d.toTimeString().slice(0,5) : '';
+});
+const tlData = Array.from({length:60}, (_,i)=> {
+  const h = new Date(Date.now()-(59-i)*60000).getHours();
+  const peak = h>=10&&h<=16?1:0.5;
+  return Math.round((30+rng()*80)*peak);
+});
+new Chart(document.getElementById('timelineChart'),{
+  type:'line',
+  data:{
+    labels:tlLabels,
+    datasets:[{
+      label:'Phones detected',data:tlData,
+      borderColor:'#a78bfa',backgroundColor:'rgba(167,139,250,0.1)',
+      borderWidth:1.5,pointRadius:0,fill:true,tension:0.4
+    }]
+  },
+  options:{
+    responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{display:false}},
+    scales:{
+      x:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#6b7280',font:{size:10},maxRotation:0}},
+      y:{grid:{color:'rgba(255,255,255,0.06)'},ticks:{color:'#6b7280',font:{size:10}}}
+    }
+  }
+});
+
+// ── RSSI distribution chart ───────────────────────────────────────
+const rssiBuckets = ['-30 to -40','-40 to -50','-50 to -60','-60 to -70','-70 to -75'];
+const rssiCounts  = [12, 28, 41, 35, 18];
+new Chart(document.getElementById('rssiChart'),{
+  type:'bar',
+  data:{
+    labels:rssiBuckets,
+    datasets:[{
+      label:'Devices',data:rssiCounts,
+      backgroundColor:['rgba(52,211,153,0.7)','rgba(52,211,153,0.6)','rgba(79,156,249,0.6)','rgba(79,156,249,0.5)','rgba(107,114,128,0.5)'],
+      borderRadius:4, borderSkipped:false,
+    }]
+  },
+  options:{
+    responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{display:false}},
+    scales:{
+      x:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#6b7280',font:{size:10}}},
+      y:{grid:{color:'rgba(255,255,255,0.06)'},ticks:{color:'#6b7280',font:{size:10}}}
+    }
+  }
+});
+
+// ── Room table ────────────────────────────────────────────────────
+const tbody = document.getElementById('roomTable');
+ROOMS.forEach(r=>{
+  const rate = Math.round(r.phones/r.ir*100);
+  const tr = document.createElement('tr');
+  tr.innerHTML=`
+    <td>${r.name}</td>
+    <td><strong style="color:var(--accent4)">${r.phones}</strong></td>
+    <td>${r.ir}</td>
+    <td>${r.unique}</td>
+    <td>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="mini-bar-bg"><div class="mini-bar" style="width:${Math.min(rate,100)}%"></div></div>
+        <span style="font-size:11px;color:var(--muted)">${rate}%</span>
+      </div>
+    </td>
+  `;
+  tbody.appendChild(tr);
+});
+</script>
+</body>
+</html>

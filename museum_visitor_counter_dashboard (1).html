@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Museum Visitor Counter — IoT Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  :root {
+    --bg: #0d0f14;
+    --bg2: #13161d;
+    --bg3: #1a1e27;
+    --card: #1e2330;
+    --border: rgba(255,255,255,0.07);
+    --accent: #4f9cf9;
+    --accent2: #22d3a0;
+    --accent3: #f97316;
+    --accent4: #a78bfa;
+    --text: #e8eaf0;
+    --muted: #6b7280;
+    --danger: #f87171;
+    --warn: #fbbf24;
+    --success: #34d399;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    font-size: 14px;
+  }
+
+  /* ── Header ── */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 28px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg2);
+    position: sticky; top: 0; z-index: 100;
+  }
+  .header-left { display: flex; align-items: center; gap: 12px; }
+  .logo {
+    width: 34px; height: 34px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+  }
+  .header-title { font-size: 16px; font-weight: 600; letter-spacing: -0.3px; }
+  .header-sub { font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .live-badge {
+    display: flex; align-items: center; gap: 6px;
+    background: rgba(52, 211, 153, 0.12);
+    border: 1px solid rgba(52, 211, 153, 0.25);
+    color: var(--success);
+    padding: 4px 10px; border-radius: 20px;
+    font-size: 11px; font-weight: 500;
+  }
+  .live-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--success);
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  .header-right { display: flex; align-items: center; gap: 12px; }
+  .date-time { text-align: right; }
+  .time { font-size: 20px; font-weight: 300; font-variant-numeric: tabular-nums; }
+  .date { font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .btn-reset {
+    padding: 7px 14px; border-radius: 6px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted); font-size: 12px;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .btn-reset:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── Layout ── */
+  .main { padding: 20px 28px; max-width: 1400px; margin: 0 auto; }
+
+  /* ── Stat Cards ── */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .stat-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.2s;
+  }
+  .stat-card:hover { border-color: rgba(255,255,255,0.15); }
+  .stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+  }
+  .stat-card.blue::before { background: var(--accent); }
+  .stat-card.green::before { background: var(--accent2); }
+  .stat-card.orange::before { background: var(--accent3); }
+  .stat-card.purple::before { background: var(--accent4); }
+  .stat-card.red::before { background: var(--danger); }
+  .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; }
+  .stat-value { font-size: 28px; font-weight: 300; font-variant-numeric: tabular-nums; line-height: 1; }
+  .stat-sub { font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .stat-trend { font-size: 11px; margin-top: 4px; }
+  .stat-trend.up { color: var(--success); }
+  .stat-trend.down { color: var(--danger); }
+  .stat-icon { position: absolute; top: 14px; right: 14px; font-size: 18px; opacity: 0.3; }
+
+  /* ── Charts Row ── */
+  .charts-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .chart-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px;
+  }
+  .chart-title { font-size: 13px; font-weight: 500; margin-bottom: 4px; }
+  .chart-sub { font-size: 11px; color: var(--muted); margin-bottom: 16px; }
+  .chart-wrap { position: relative; width: 100%; height: 220px; }
+
+  /* ── Room Grid ── */
+  .rooms-section { margin-bottom: 20px; }
+  .section-title { font-size: 13px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 12px; }
+  .rooms-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+  }
+  .room-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    transition: border-color 0.2s;
+    cursor: default;
+  }
+  .room-card:hover { border-color: rgba(255,255,255,0.15); }
+  .room-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .room-name { font-size: 13px; font-weight: 500; }
+  .room-status {
+    font-size: 10px; padding: 2px 7px; border-radius: 10px;
+    font-weight: 500;
+  }
+  .status-ok { background: rgba(52,211,153,0.15); color: var(--success); }
+  .status-busy { background: rgba(251,191,36,0.15); color: var(--warn); }
+  .status-full { background: rgba(248,113,113,0.15); color: var(--danger); }
+  .status-closed { background: rgba(107,114,128,0.1); color: var(--muted); }
+  .room-count { font-size: 26px; font-weight: 300; font-variant-numeric: tabular-nums; line-height: 1; }
+  .room-count-label { font-size: 10px; color: var(--muted); margin-top: 2px; }
+  .room-bar-bg { height: 4px; background: rgba(255,255,255,0.06); border-radius: 2px; margin-top: 10px; }
+  .room-bar { height: 4px; border-radius: 2px; transition: width 1s ease; }
+  .room-meta { font-size: 10px; color: var(--muted); margin-top: 6px; display: flex; justify-content: space-between; }
+
+  /* ── Bottom Row ── */
+  .bottom-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  /* ── Activity Log ── */
+  .log-list { display: flex; flex-direction: column; gap: 8px; max-height: 220px; overflow-y: auto; }
+  .log-list::-webkit-scrollbar { width: 3px; }
+  .log-list::-webkit-scrollbar-track { background: transparent; }
+  .log-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .log-entry { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+  .log-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .log-dot.entry { background: var(--success); }
+  .log-dot.exit { background: var(--danger); }
+  .log-time { color: var(--muted); min-width: 48px; font-variant-numeric: tabular-nums; }
+  .log-text { color: var(--text); }
+  .log-room { color: var(--accent); }
+
+  /* ── Weekly Report ── */
+  .report-chart-wrap { position: relative; width: 100%; height: 180px; }
+  .report-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 12px; }
+  .report-stat { text-align: center; }
+  .report-stat-val { font-size: 18px; font-weight: 300; font-variant-numeric: tabular-nums; }
+  .report-stat-lbl { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+  /* ── Alerts ── */
+  .alert-bar {
+    display: flex; align-items: center; gap: 10px;
+    background: rgba(251,191,36,0.08);
+    border: 1px solid rgba(251,191,36,0.2);
+    border-radius: 8px;
+    padding: 8px 14px;
+    margin-bottom: 12px;
+    font-size: 12px; color: var(--warn);
+  }
+  .alert-bar.hidden { display: none; }
+
+  /* ── Responsive ── */
+  @media (max-width: 900px) {
+    .charts-row { grid-template-columns: 1fr; }
+    .bottom-row { grid-template-columns: 1fr; }
+    .main { padding: 16px; }
+    .header { padding: 12px 16px; }
+  }
+  @media (max-width: 500px) {
+    .stats-grid { grid-template-columns: 1fr 1fr; }
+    .stat-value { font-size: 22px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Header ── -->
+<header class="header">
+  <div class="header-left">
+    <div class="logo">🏛</div>
+    <div>
+      <div class="header-title">MuseumIoT Dashboard</div>
+      <div class="header-sub">Visitor Counter System — ESP32 + IR Sensors</div>
+    </div>
+  </div>
+  <div class="live-badge"><div class="live-dot"></div> Live</div>
+  <div class="header-right">
+    <div class="date-time">
+      <div class="time" id="clock">--:--:--</div>
+      <div class="date" id="dateLabel">Loading...</div>
+    </div>
+    <button class="btn-reset" onclick="resetCounters()">↺ Reset</button>
+  </div>
+</header>
+
+<main class="main">
+
+  <!-- ── Alert Bar ── -->
+  <div class="alert-bar" id="alertBar">
+    ⚠ Egyptian Gallery is at 90% capacity — consider redirecting visitors
+    <button onclick="document.getElementById('alertBar').classList.add('hidden')" style="margin-left:auto;background:none;border:none;color:var(--warn);cursor:pointer;font-size:14px">✕</button>
+  </div>
+
+  <!-- ── Stat Cards ── -->
+  <div class="stats-grid">
+    <div class="stat-card blue">
+      <div class="stat-icon">👥</div>
+      <div class="stat-label">Currently Inside</div>
+      <div class="stat-value" id="totalInside">0</div>
+      <div class="stat-sub">Across all rooms</div>
+    </div>
+    <div class="stat-card green">
+      <div class="stat-icon">🚪</div>
+      <div class="stat-label">Today's Entries</div>
+      <div class="stat-value" id="todayEntries">0</div>
+      <div class="stat-trend up" id="entriesTrend">↑ vs yesterday</div>
+    </div>
+    <div class="stat-card orange">
+      <div class="stat-icon">📤</div>
+      <div class="stat-label">Today's Exits</div>
+      <div class="stat-value" id="todayExits">0</div>
+      <div class="stat-sub" id="exitRate">Exit rate: --%</div>
+    </div>
+    <div class="stat-card purple">
+      <div class="stat-icon">⏱</div>
+      <div class="stat-label">Avg. Visit Duration</div>
+      <div class="stat-value" id="avgDuration">--</div>
+      <div class="stat-sub">minutes per visitor</div>
+    </div>
+    <div class="stat-card red">
+      <div class="stat-icon">🔥</div>
+      <div class="stat-label">Peak Hour Today</div>
+      <div class="stat-value" id="peakHour">--:--</div>
+      <div class="stat-sub" id="peakCount">-- visitors</div>
+    </div>
+  </div>
+
+  <!-- ── Charts Row ── -->
+  <div class="charts-row">
+    <div class="chart-card">
+      <div class="chart-title">Hourly Visitor Flow — Today</div>
+      <div class="chart-sub">Entries vs Exits per hour</div>
+      <div class="chart-wrap"><canvas id="hourlyChart"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Room Distribution</div>
+      <div class="chart-sub">Current occupancy split</div>
+      <div class="chart-wrap"><canvas id="donutChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ── Room Cards ── -->
+  <div class="rooms-section">
+    <div class="section-title">Room-wise Tracking</div>
+    <div class="rooms-grid" id="roomsGrid"></div>
+  </div>
+
+  <!-- ── Bottom Row ── -->
+  <div class="bottom-row">
+    <div class="chart-card">
+      <div class="chart-title">Live Activity Log</div>
+      <div class="chart-sub" style="margin-bottom:10px">Real-time sensor events</div>
+      <div class="log-list" id="logList"></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Weekly Summary</div>
+      <div class="chart-sub">Visitor count — last 7 days</div>
+      <div class="report-chart-wrap"><canvas id="weeklyChart"></canvas></div>
+      <div class="report-stats">
+        <div class="report-stat">
+          <div class="report-stat-val" id="weekTotal">0</div>
+          <div class="report-stat-lbl">Total</div>
+        </div>
+        <div class="report-stat">
+          <div class="report-stat-val" id="weekAvg">0</div>
+          <div class="report-stat-lbl">Daily Avg</div>
+        </div>
+        <div class="report-stat">
+          <div class="report-stat-val" id="weekPeak">0</div>
+          <div class="report-stat-lbl">Peak Day</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ─── DATA ───────────────────────────────────────────────────────────
+const ROOMS = [
+  { id:'main',     name:'Main Hall',       capacity:150, color:'#4f9cf9' },
+  { id:'egypt',    name:'Egyptian Gallery',capacity:60,  color:'#fbbf24' },
+  { id:'medieval', name:'Medieval Wing',   capacity:80,  color:'#a78bfa' },
+  { id:'science',  name:'Science Corner',  capacity:50,  color:'#22d3a0' },
+  { id:'art',      name:'Art Gallery',     capacity:70,  color:'#f97316' },
+  { id:'gift',     name:'Gift Shop',       capacity:30,  color:'#f472b6' },
+  { id:'cafe',     name:'Café',            capacity:40,  color:'#34d399' },
+  { id:'outdoor',  name:'Outdoor Garden',  capacity:200, color:'#60a5fa' },
+];
+
+// Seeded random for stable demo
+function seededRnd(seed) {
+  let s = seed;
+  return () => { s = (s * 16807 + 0) % 2147483647; return (s - 1) / 2147483646; };
+}
+const rng = seededRnd(42);
+
+// Generate hourly data for today
+const HOURS = Array.from({length:24},(_,i)=>i);
+const hourlyEntries = HOURS.map(h => {
+  if(h < 8 || h > 20) return 0;
+  const peak = h >= 10 && h <= 16 ? 1 : 0.4;
+  return Math.round((20 + rng()*60) * peak);
+});
+const hourlyExits = HOURS.map((h,i) => i===0?0:Math.round(hourlyEntries[i] * (0.7 + rng()*0.25)));
+
+// Room occupancy
+const roomOccupancy = {};
+ROOMS.forEach(r => {
+  roomOccupancy[r.id] = Math.round(rng() * r.capacity * 0.85);
+});
+
+// Weekly data
+const DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const weeklyData = DAYS.map((_,i) => Math.round(200 + rng()*400 + (i===5||i===6?200:0)));
+
+// Computed metrics
+const todayEntries = hourlyEntries.reduce((a,b)=>a+b,0);
+const todayExits   = hourlyExits.reduce((a,b)=>a+b,0);
+const totalInside  = Object.values(roomOccupancy).reduce((a,b)=>a+b,0);
+const peakIdx      = hourlyEntries.indexOf(Math.max(...hourlyEntries));
+const avgDuration  = Math.round(45 + rng()*30);
+const weekTotal    = weeklyData.reduce((a,b)=>a+b,0);
+const weekAvg      = Math.round(weekTotal/7);
+const weekPeak     = Math.max(...weeklyData);
+
+// ─── DOM Updates ────────────────────────────────────────────────────
+function animate(el, target, duration=1200) {
+  const start = Date.now();
+  const from  = parseInt(el.textContent) || 0;
+  const tick  = () => {
+    const t = Math.min((Date.now()-start)/duration,1);
+    const ease = 1-Math.pow(1-t,3);
+    el.textContent = Math.round(from + (target-from)*ease);
+    if(t<1) requestAnimationFrame(tick);
+  };
+  tick();
+}
+
+setTimeout(() => {
+  animate(document.getElementById('totalInside'), totalInside);
+  animate(document.getElementById('todayEntries'), todayEntries);
+  animate(document.getElementById('todayExits'), todayExits);
+  animate(document.getElementById('weekTotal'), weekTotal);
+  animate(document.getElementById('weekAvg'), weekAvg);
+  animate(document.getElementById('weekPeak'), weekPeak);
+},200);
+
+document.getElementById('avgDuration').textContent = avgDuration;
+document.getElementById('peakHour').textContent    = `${peakIdx}:00`;
+document.getElementById('peakCount').textContent   = `${hourlyEntries[peakIdx]} visitors`;
+document.getElementById('exitRate').textContent    = `Exit rate: ${Math.round(todayExits/todayEntries*100)}%`;
+document.getElementById('entriesTrend').textContent = `↑ +${Math.round(8+rng()*15)}% vs yesterday`;
+
+// ─── Clock ──────────────────────────────────────────────────────────
+function tick() {
+  const now = new Date();
+  document.getElementById('clock').textContent =
+    now.toTimeString().slice(0,8);
+  document.getElementById('dateLabel').textContent =
+    now.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+}
+tick(); setInterval(tick,1000);
+
+// ─── Hourly Chart ───────────────────────────────────────────────────
+const hourLabels = HOURS.map(h=>h<10?`0${h}:00`:`${h}:00`);
+new Chart(document.getElementById('hourlyChart'), {
+  type:'bar',
+  data:{
+    labels:hourLabels,
+    datasets:[
+      { label:'Entries', data:hourlyEntries, backgroundColor:'rgba(79,156,249,0.7)', borderRadius:3, borderSkipped:false },
+      { label:'Exits',   data:hourlyExits,   backgroundColor:'rgba(248,113,113,0.6)', borderRadius:3, borderSkipped:false },
+    ]
+  },
+  options:{
+    responsive:true, maintainAspectRatio:false,
+    plugins:{ legend:{display:false}, tooltip:{ callbacks:{ title: t=>t[0].label } } },
+    scales:{
+      x:{ grid:{color:'rgba(255,255,255,0.04)'}, ticks:{color:'#6b7280',font:{size:10},maxRotation:45,autoSkip:true,maxTicksLimit:12} },
+      y:{ grid:{color:'rgba(255,255,255,0.06)'}, ticks:{color:'#6b7280',font:{size:10}} }
+    }
+  }
+});
+
+// ─── Donut Chart ────────────────────────────────────────────────────
+const topRooms = ROOMS.slice(0,5);
+new Chart(document.getElementById('donutChart'), {
+  type:'doughnut',
+  data:{
+    labels: topRooms.map(r=>r.name),
+    datasets:[{
+      data: topRooms.map(r=>roomOccupancy[r.id]),
+      backgroundColor: topRooms.map(r=>r.color+'cc'),
+      borderColor: topRooms.map(r=>r.color),
+      borderWidth:1, hoverOffset:6
+    }]
+  },
+  options:{
+    responsive:true, maintainAspectRatio:false,
+    cutout:'65%',
+    plugins:{ legend:{ position:'right', labels:{ color:'#9ca3af', font:{size:11}, boxWidth:10, padding:10 } } }
+  }
+});
+
+// ─── Weekly Chart ────────────────────────────────────────────────────
+new Chart(document.getElementById('weeklyChart'), {
+  type:'line',
+  data:{
+    labels:DAYS,
+    datasets:[{
+      label:'Visitors', data:weeklyData,
+      borderColor:'#4f9cf9', backgroundColor:'rgba(79,156,249,0.1)',
+      borderWidth:2, pointBackgroundColor:'#4f9cf9', pointRadius:4,
+      fill:true, tension:0.4
+    }]
+  },
+  options:{
+    responsive:true, maintainAspectRatio:false,
+    plugins:{legend:{display:false}},
+    scales:{
+      x:{ grid:{color:'rgba(255,255,255,0.04)'}, ticks:{color:'#6b7280',font:{size:11}} },
+      y:{ grid:{color:'rgba(255,255,255,0.06)'}, ticks:{color:'#6b7280',font:{size:11}} }
+    }
+  }
+});
+
+// ─── Room Cards ──────────────────────────────────────────────────────
+function getStatus(occ, cap) {
+  const pct = occ/cap;
+  if(pct >= 0.9) return ['Full',   'status-full'];
+  if(pct >= 0.7) return ['Busy',   'status-busy'];
+  return                ['Normal', 'status-ok'];
+}
+const grid = document.getElementById('roomsGrid');
+ROOMS.forEach(r => {
+  const occ = roomOccupancy[r.id];
+  const [statusText, statusClass] = getStatus(occ, r.capacity);
+  const pct = Math.round(occ/r.capacity*100);
+  const card = document.createElement('div');
+  card.className = 'room-card';
+  card.innerHTML = `
+    <div class="room-header">
+      <span class="room-name">${r.name}</span>
+      <span class="room-status ${statusClass}">${statusText}</span>
+    </div>
+    <div class="room-count" style="color:${r.color}">${occ}</div>
+    <div class="room-count-label">people inside</div>
+    <div class="room-bar-bg">
+      <div class="room-bar" id="bar-${r.id}" style="width:0%;background:${r.color}"></div>
+    </div>
+    <div class="room-meta">
+      <span>Capacity: ${r.capacity}</span>
+      <span>${pct}%</span>
+    </div>
+  `;
+  grid.appendChild(card);
+  setTimeout(()=>{ document.getElementById(`bar-${r.id}`).style.width = pct+'%'; },300+Math.random()*400);
+});
+
+// ─── Activity Log ─────────────────────────────────────────────────────
+const logContainer = document.getElementById('logList');
+const eventTypes = ['Entry','Exit'];
+const logBuffer = [];
+function addLog(type, room, time) {
+  const entry = document.createElement('div');
+  entry.className = 'log-entry';
+  entry.style.opacity='0';
+  entry.style.transition='opacity 0.4s';
+  entry.innerHTML = `
+    <div class="log-dot ${type==='Entry'?'entry':'exit'}"></div>
+    <span class="log-time">${time}</span>
+    <span class="log-text">${type} — <span class="log-room">${room}</span></span>
+  `;
+  logContainer.prepend(entry);
+  setTimeout(()=>{ entry.style.opacity='1'; },10);
+  if(logContainer.children.length > 20) logContainer.lastChild.remove();
+}
+// Seed with past events
+const now = new Date();
+for(let i=15;i>=0;i--) {
+  const t = new Date(now - i*90000 - Math.random()*60000);
+  const type = Math.random()>0.45?'Entry':'Exit';
+  const room  = ROOMS[Math.floor(Math.random()*ROOMS.length)].name;
+  addLog(type, room, t.toTimeString().slice(0,5));
+}
+// Live simulation
+setInterval(()=>{
+  const type = Math.random()>0.4?'Entry':'Exit';
+  const room  = ROOMS[Math.floor(Math.random()*ROOMS.length)].name;
+  const ts    = new Date().toTimeString().slice(0,5);
+  addLog(type, room, ts);
+}, 3500);
+
+// ─── Reset ───────────────────────────────────────────────────────────
+function resetCounters() {
+  if(!confirm('Reset all visitor counts? This cannot be undone.')) return;
+  ROOMS.forEach(r => roomOccupancy[r.id] = 0);
+  location.reload();
+}
+</script>
+</body>
+</html>
