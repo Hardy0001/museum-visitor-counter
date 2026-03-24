@@ -170,7 +170,17 @@ app.get('/api/summary', (req, res) => {
   });
 });
 
-app.get('/health', (req, res) => res.json({ status: 'ok', uptime: process.uptime() }));
+// POST /api/reset — clears all events and room data
+app.post('/api/reset', (req, res) => {
+  events.length = 0;
+  Object.keys(rooms).forEach(k => {
+    rooms[k].current_count = 0;
+    rooms[k].total_entries = 0;
+    rooms[k].total_exits   = 0;
+  });
+  console.log('[RESET] All counts and events cleared');
+  res.json({ ok: true });
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
