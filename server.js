@@ -1,8 +1,10 @@
 /*
- ╔══════════════════════════════════════════════════════════════════╗
- ║   MUSEUM SERVER — Updated with Wi-Fi Probe Support               ║
- ║   Add this to your existing museum_server.js                     ║
- ╚══════════════════════════════════════════════════════════════════╝
+  Museum IoT Server — Complete with:
+  - Visitor counting (IR sensors)
+  - Phone detection (Wi-Fi probe)
+  - Events log (real-time sync)
+  - Reset flag (syncs simulator + dashboard)
+  - Multi-room capacity alerts
 */
 
 const express = require('express');
@@ -13,176 +15,106 @@ app.use(cors({ origin: '*', methods: ['GET','POST','OPTIONS'], allowedHeaders: [
 app.options('*', cors());
 app.use(express.json());
 
-// ─── Existing stores ──────────────────────────────────────────────────
-const rooms   = {};
-const history = {};
-const alerts  = [];
+// ─── Stores ───────────────────────────────────────────────────────────
+const rooms      = {};   // roomId → latest room data
+const events     = [];   // last 200 events (entry/exit/phone/reset)
+const phones     = {};   // roomId → phone detection data
+let   resetFlag  = 0;    // timestamp of last reset — clients check this
 
-// ─── NEW: Probe stores ────────────────────────────────────────────────
-const probeData   = {};   // roomId → latest probe snapshot
-const probeHistory= {};   // roomId → time-series array
-
-// ─── EXISTING ROUTES (unchanged) ─────────────────────────────────────
-
-// ─── Events log (keeps last 100 events) ──────────────────────────────
-const events = [];
-
+// ─── POST /api/visitor ────────────────────────────────────────────────
 app.post('/api/visitor', (req, res) => {
   const { room_id, room_name, current_count, total_entries, total_exits, capacity, timestamp, event_type } = req.body;
   if (!room_id) return res.status(400).json({ error: 'room_id required' });
 
-  const prev = rooms[room_id]?.current_count || 0;
   rooms[room_id] = {
-    room_id, room_name, current_count, total_entries, total_exits, capacity, timestamp,
-    last_seen: Date.now(),
-    occupancy_pct: Math.round(current_count / capacity * 100),
+    room_id, room_name,
+    current_count: parseInt(current_count) || 0,
+    total_entries: parseInt(total_entries) || 0,
+    total_exits:   parseInt(total_exits)   || 0,
+    capacity:      parseInt(capacity)      || 100,
+    timestamp, last_seen: Date.now(),
+    occupancy_pct: Math.round((parseInt(current_count)||0) / (parseInt(capacity)||100) * 100),
   };
-  if (!history[room_id]) history[room_id] = [];
-  history[room_id].push({ timestamp, count: current_count });
-  if (history[room_id].length > 17280) history[room_id].shift();
 
-  // Log the event
-  if (event_type) {
+  if (event_type && event_type !== 'reset') {
     events.push({
       type: event_type,
       room_id, room_name,
-      count: current_count,
+      count: parseInt(current_count) || 0,
       time: new Date().toTimeString().slice(0,5),
       received_at: Date.now(),
     });
-    if (events.length > 100) events.shift();
+    if (events.length > 200) events.shift();
   }
 
-  console.log(`[VISITOR] Room: ${room_name} | Count: ${current_count}/${capacity}`);
+  console.log(`[${event_type||'UPDATE'}] ${room_name}: ${current_count}/${capacity}`);
   res.json({ ok: true });
 });
 
-// GET /api/events — dashboard polls this for live log
-app.get('/api/events', (req, res) => {
-  const since = parseInt(req.query.since) || 0;
-  const filtered = events.filter(e => e.received_at > since);
-  res.json({ events: filtered, latest_time: Date.now() });
-});
-
-app.post('/api/visitor/alert', (req, res) => {
-  alerts.push({ ...req.body, received_at: Date.now() });
-  res.json({ ok: true });
-});
-
+// ─── GET /api/rooms ───────────────────────────────────────────────────
 app.get('/api/rooms', (req, res) => {
-  const result = Object.values(rooms).map(r => ({
-    ...r,
-    is_online: (Date.now() - r.last_seen) < 30000,
-    probe: probeData[r.room_id] || null,  // attach probe data per room
-  }));
-  res.json({ rooms: result, total_visitors: result.reduce((s,r)=>s+r.current_count,0) });
-});
-
-app.get('/api/rooms/:roomId/history', (req, res) => {
-  const data = history[req.params.roomId] || [];
-  const hourly = {};
-  data.forEach(({ timestamp, count }) => {
-    const h = new Date(timestamp * 1000).getHours();
-    if (!hourly[h]) hourly[h] = { hour: h, samples: [], max: 0 };
-    hourly[h].samples.push(count);
-    hourly[h].max = Math.max(hourly[h].max, count);
+  const list = Object.values(rooms);
+  res.json({
+    rooms: list,
+    total_visitors: list.reduce((s,r) => s + r.current_count, 0),
+    reset_flag: resetFlag,
   });
-  const result = Array.from({length:24},(_,h) => ({
-    hour: h,
-    avg: hourly[h] ? Math.round(hourly[h].samples.reduce((a,b)=>a+b,0)/hourly[h].samples.length) : 0,
-    max: hourly[h]?.max || 0,
-  }));
-  res.json({ room_id: req.params.roomId, history: result });
 });
 
-app.get('/api/alerts', (req, res) => res.json({ alerts: alerts.slice(-50) }));
+// ─── GET /api/events ──────────────────────────────────────────────────
+app.get('/api/events', (req, res) => {
+  const since    = parseInt(req.query.since) || 0;
+  const filtered = events.filter(e => e.received_at > since);
+  res.json({ events: filtered, server_time: Date.now(), reset_flag: resetFlag });
+});
 
-// ─── NEW: Wi-Fi Probe Routes ──────────────────────────────────────────
-
-// POST /api/probe — ESP32 probe sniffer sends aggregated counts
-app.post('/api/probe', (req, res) => {
-  const { room_id, phones_in_range, unique_today, active_entries, timestamp } = req.body;
+// ─── POST /api/phone ──────────────────────────────────────────────────
+app.post('/api/phone', (req, res) => {
+  const { room_id, room_name, phone_detected, timestamp } = req.body;
   if (!room_id) return res.status(400).json({ error: 'room_id required' });
 
-  probeData[room_id] = {
-    room_id,
-    phones_in_range,
-    unique_today,
-    active_entries,
-    timestamp,
+  phones[room_id] = { room_id, room_name, phone_detected, timestamp, received_at: Date.now() };
+
+  // Add to events log
+  events.push({
+    type: 'phone',
+    room_id, room_name,
+    count: 0,
+    time: new Date().toTimeString().slice(0,5),
     received_at: Date.now(),
-  };
-
-  // Append to probe history (for trend charts)
-  if (!probeHistory[room_id]) probeHistory[room_id] = [];
-  probeHistory[room_id].push({
-    t: Date.now(),
-    phones_in_range,
-    unique_today,
   });
-  // Keep last 2 hours at 10s resolution = 720 records
-  if (probeHistory[room_id].length > 720) probeHistory[room_id].shift();
+  if (events.length > 200) events.shift();
 
-  console.log(`[PROBE] Room: ${room_id} | Phones nearby: ${phones_in_range} | Unique today: ${unique_today}`);
+  console.log(`[PHONE] Detected in ${room_name}`);
   res.json({ ok: true });
 });
 
-// GET /api/probe — dashboard fetches all rooms' probe snapshots
-app.get('/api/probe', (req, res) => {
-  const museum_total_phones = Object.values(probeData)
-    .reduce((s, r) => s + (r.phones_in_range || 0), 0);
-  const museum_unique_today = Math.max(
-    ...Object.values(probeData).map(r => r.unique_today || 0), 0
-  );
-  res.json({
-    rooms: probeData,
-    museum_total_phones,
-    museum_unique_today,
-  });
+// ─── GET /api/phones ─────────────────────────────────────────────────
+app.get('/api/phones', (req, res) => {
+  res.json({ phones, total: Object.values(phones).filter(p => p.phone_detected).length });
 });
 
-// GET /api/probe/:roomId/history — time-series for charts
-app.get('/api/probe/:roomId/history', (req, res) => {
-  const data = probeHistory[req.params.roomId] || [];
-  res.json({ room_id: req.params.roomId, history: data });
-});
-
-// GET /api/summary — combined visitor + probe summary
-app.get('/api/summary', (req, res) => {
-  const totalVisitors = Object.values(rooms).reduce((s,r) => s + r.current_count, 0);
-  const totalPhones   = Object.values(probeData).reduce((s,r) => s + (r.phones_in_range||0), 0);
-
-  // Phone-to-person ratio: phones / IR count gives device density
-  const phoneRatio = totalVisitors > 0
-    ? Math.round((totalPhones / totalVisitors) * 100) / 100
-    : 0;
-
-  res.json({
-    total_visitors_ir:   totalVisitors,
-    total_phones_nearby: totalPhones,
-    phone_per_person:    phoneRatio,
-    rooms: Object.keys(rooms).map(id => ({
-      room_id:      id,
-      ir_count:     rooms[id]?.current_count || 0,
-      phone_count:  probeData[id]?.phones_in_range || 0,
-      unique_today: probeData[id]?.unique_today || 0,
-    })),
-  });
-});
-
-// POST /api/reset — clears all events and room data
+// ─── POST /api/reset ─────────────────────────────────────────────────
 app.post('/api/reset', (req, res) => {
-  events.length = 0;
+  // Clear all room counts
   Object.keys(rooms).forEach(k => {
     rooms[k].current_count = 0;
     rooms[k].total_entries = 0;
     rooms[k].total_exits   = 0;
+    rooms[k].occupancy_pct = 0;
   });
-  console.log('[RESET] All counts and events cleared');
-  res.json({ ok: true });
+  // Clear phone detections
+  Object.keys(phones).forEach(k => { phones[k].phone_detected = false; });
+  // Clear events
+  events.length = 0;
+  // Set reset flag — clients detect this and reset themselves
+  resetFlag = Date.now();
+  console.log('[RESET] Full system reset at', new Date().toISOString());
+  res.json({ ok: true, reset_flag: resetFlag });
 });
 
+// ─── GET /health ──────────────────────────────────────────────────────
+app.get('/health', (req, res) => res.json({ status: 'ok', uptime: process.uptime(), reset_flag: resetFlag }));
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Museum IoT Server (with Probe) running on http://localhost:${PORT}`);
-});
+app.listen(PORT, () => console.log(`Museum IoT Server running on port ${PORT}`));
