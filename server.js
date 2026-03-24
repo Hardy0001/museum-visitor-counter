@@ -24,9 +24,14 @@ const probeHistory= {};   // roomId → time-series array
 
 // ─── EXISTING ROUTES (unchanged) ─────────────────────────────────────
 
+// ─── Events log (keeps last 100 events) ──────────────────────────────
+const events = [];
+
 app.post('/api/visitor', (req, res) => {
-  const { room_id, room_name, current_count, total_entries, total_exits, capacity, timestamp } = req.body;
+  const { room_id, room_name, current_count, total_entries, total_exits, capacity, timestamp, event_type } = req.body;
   if (!room_id) return res.status(400).json({ error: 'room_id required' });
+
+  const prev = rooms[room_id]?.current_count || 0;
   rooms[room_id] = {
     room_id, room_name, current_count, total_entries, total_exits, capacity, timestamp,
     last_seen: Date.now(),
@@ -35,8 +40,28 @@ app.post('/api/visitor', (req, res) => {
   if (!history[room_id]) history[room_id] = [];
   history[room_id].push({ timestamp, count: current_count });
   if (history[room_id].length > 17280) history[room_id].shift();
+
+  // Log the event
+  if (event_type) {
+    events.push({
+      type: event_type,
+      room_id, room_name,
+      count: current_count,
+      time: new Date().toTimeString().slice(0,5),
+      received_at: Date.now(),
+    });
+    if (events.length > 100) events.shift();
+  }
+
   console.log(`[VISITOR] Room: ${room_name} | Count: ${current_count}/${capacity}`);
   res.json({ ok: true });
+});
+
+// GET /api/events — dashboard polls this for live log
+app.get('/api/events', (req, res) => {
+  const since = parseInt(req.query.since) || 0;
+  const filtered = events.filter(e => e.received_at > since);
+  res.json({ events: filtered, latest_time: Date.now() });
 });
 
 app.post('/api/visitor/alert', (req, res) => {
